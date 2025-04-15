@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Leitor de Reposição</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a74da" />
+  <link rel="manifest" href="manifest.json">
+  <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+  <style>
+    body { font-family: Arial; padding: 1rem; }
+    #scanner { width: 100%; height: 200px; border: 2px dashed #aaa; margin-bottom: 1rem; }
+    input, button, select { margin-bottom: 0.5rem; width: 100%; padding: 0.5rem; }
+    .log { background: #f4f4f4; padding: 0.5rem; margin-top: 1rem; max-height: 200px; overflow-y: scroll; }
+  </style>
+</head>
+<body>
+  <h2>Leitor de Reposição</h2>
+  <div id="scanner"></div>
+  <p><strong>Código Lido:</strong> <span id="scannedCode">---</span></p>
+  <button onclick="startScanner()">Iniciar Scanner</button>
+  <hr/>
+  <h3>Cadastro de Produto</h3>
+  <input type="text" id="barcode" placeholder="Código de barras" />
+  <input type="text" id="productName" placeholder="Nome do produto" />
+  <input type="text" id="sector" placeholder="Setor" />
+  <input type="date" id="validity" placeholder="Validade (opcional)" />
+  <button onclick="registerProduct()">Cadastrar Produto</button>
+  <hr/>
+  <h3>Produto Detectado</h3>
+  <p id="productInfo">Nenhum</p>
+  <button onclick="markReplenished()">Marcar como Reposto</button>
+  <hr/>
+  <h3>Histórico de Reposições</h3>
+  <div class="log" id="log"></div>
+
+<script>
+let scannedCode = '';
+
+function startScanner() {
+  Quagga.init({
+    inputStream: {
+      name: "Live",
+      type: "LiveStream",
+      target: document.querySelector('#scanner'),
+      constraints: {
+        facingMode: "environment"
+      }
+    },
+    decoder: {
+      readers: ["ean_reader"]
+    }
+  }, function (err) {
+    if (err) {
+      console.error(err);
+      alert("Erro ao iniciar câmera. Use um navegador com HTTPS e permita acesso à câmera.");
+      return;
+    }
+    Quagga.start();
+  });
+
+  Quagga.onDetected(function (data) {
+    scannedCode = data.codeResult.code;
+    document.getElementById('scannedCode').innerText = scannedCode;
+    showProductInfo(scannedCode);
+  });
+}
+
+function registerProduct() {
+  const barcode = document.getElementById('barcode').value;
+  const name = document.getElementById('productName').value;
+  const sector = document.getElementById('sector').value;
+  const validity = document.getElementById('validity').value;
+
+  if (!barcode || !name || !sector) return alert('Preencha todos os campos obrigatórios.');
+
+  const db = JSON.parse(localStorage.getItem('products') || '{}');
+  db[barcode] = { name, sector, validity };
+  localStorage.setItem('products', JSON.stringify(db));
+  alert('Produto cadastrado!');
+}
+
+function showProductInfo(code) {
+  const db = JSON.parse(localStorage.getItem('products') || '{}');
+  if (db[code]) {
+    const p = db[code];
+    document.getElementById('productInfo').innerText = `${p.name} - Setor: ${p.sector}` + (p.validity ? ` - Val: ${p.validity}` : '');
+  } else {
+    document.getElementById('productInfo').innerText = 'Produto não encontrado.';
+  }
+}
+
+function markReplenished() {
+  if (!scannedCode) return alert('Nenhum código escaneado.');
+
+  const db = JSON.parse(localStorage.getItem('products') || '{}');
+  if (!db[scannedCode]) return alert('Produto não cadastrado.');
+
+  const logs = JSON.parse(localStorage.getItem('logs') || '[]');
+  const now = new Date().toLocaleString();
+  logs.push({ code: scannedCode, time: now, ...db[scannedCode] });
+  localStorage.setItem('logs', JSON.stringify(logs));
+  updateLog();
+  alert('Reposição registrada!');
+}
+
+function updateLog() {
+  const logs = JSON.parse(localStorage.getItem('logs') || '[]');
+  const logDiv = document.getElementById('log');
+  logDiv.innerHTML = logs.map(l => `[${l.time}] ${l.name} (${l.code}) - Setor: ${l.sector}`).join('<br>');
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => console.log('Service Worker registrado'))
+      .catch(err => console.error('Erro no Service Worker', err));
+  });
+}
+
+updateLog();
+</script>
+</body>
+</html>
